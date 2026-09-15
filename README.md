@@ -5,7 +5,8 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/managed%20with-uv-de5fe9)](https://github.com/astral-sh/uv)
 [![Typer](https://img.shields.io/badge/CLI-Typer%20%2B%20Rich-6f42c1)](https://typer.tiangolo.com/)
-[![Status](https://img.shields.io/badge/status-phase%202%20of%2010-yellow)](noctis_plan.md)
+[![Status](https://img.shields.io/badge/status-phase%202%20of%2010-yellow)](#where%20it%20stands)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Made for](https://img.shields.io/badge/made%20for-authorized%20engagements-critical)](#responsible%20use)
 
 ## What it does
@@ -52,7 +53,23 @@ Everything an agent thinks or decides runs through a single model router, so swa
 ```bash
 uv sync
 uv run playwright install chromium
-cp .env.example .env   # add at least one model API key
+```
+
+Then create a `.env` file in the project root with at least one model API key set:
+
+```env
+GEMINI_API_KEY=your_gemini_key_here
+OPENAI_API_KEY=your_openai_key_here
+ANTHROPIC_API_KEY=your_anthropic_key_here
+OPENROUTER_API_KEY=your_openrouter_key_here
+
+DEFAULT_MODEL=gemini
+MAX_WORKERS=3
+REQUESTS_PER_SECOND=10
+MAX_SCAN_DEPTH=5
+CONFIRM_DESTRUCTIVE=true
+REPORT_OUTPUT_DIR=./reports
+WORKSPACE_DIR=./workspaces
 ```
 
 ## Usage
@@ -91,7 +108,7 @@ uv run noctis report --workspace <id> --format json
 | Report engine (PDF / SARIF / Markdown / JSON) | Planned |
 | FastAPI backend + React dashboard | Planned |
 
-`noctis scan` runs every stage that exists today and stops cleanly once it reaches one that doesn't, rather than pretending to finish. See [`noctis_plan.md`](noctis_plan.md) for the full ten phase build plan.
+`noctis scan` runs every stage that exists today and stops cleanly once it reaches one that doesn't, rather than pretending to finish.
 
 ## Responsible use
 
