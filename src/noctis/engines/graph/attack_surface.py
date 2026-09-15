@@ -78,6 +78,12 @@ def _add_web_nodes(g: nx.DiGraph, web: dict[str, Any]) -> None:
         page_node = next((n for n in g.nodes if g.nodes[n].get("url") == form["page_url"]), ROOT_NODE)
         g.add_edge(page_node, node_id, relation="submits_to")
 
+        # a form submission is the same request as its action endpoint, so risk
+        # discovered on one should propagate to the other
+        equivalent_endpoint = f"endpoint::{form['method']}::{form['action']}"
+        if g.has_node(equivalent_endpoint):
+            g.add_edge(node_id, equivalent_endpoint, relation="submits_as")
+
     for route in web.get("js_routes", []):
         node_id = f"js_route::{route}"
         g.add_node(node_id, type="js_route", path=route)
@@ -124,6 +130,17 @@ def _add_code_nodes(g: nx.DiGraph, code: dict[str, Any]) -> None:
             line=secret["line"],
             masked_value=secret["masked_value"],
         )
+        # connect to a route in the same file when we have one, otherwise fall
+        # back to root so the chain detector can still reach standalone secrets
+        same_file_route = next(
+            (
+                f"route::{route['method']}::{route['path']}"
+                for route in code.get("routes", [])
+                if route["file"] == secret["file"]
+            ),
+            None,
+        )
+        g.add_edge(same_file_route or ROOT_NODE, node_id, relation="exposes_secret")
 
 
 def _link_routes_to_endpoints(g: nx.DiGraph, web: dict[str, Any], code: dict[str, Any]) -> None:
@@ -140,6 +157,13 @@ def _link_routes_to_endpoints(g: nx.DiGraph, web: dict[str, Any], code: dict[str
             route_path = g.nodes[route_node]["path"]
             if _paths_match(endpoint_path, route_path):
                 g.add_edge(endpoint_node, route_node, relation="maps_to_source")
+
+    for js_route_path in web.get("js_routes", []):
+        js_node = f"js_route::{js_route_path}"
+        for route_node in route_nodes:
+            route_path = g.nodes[route_node]["path"]
+            if _paths_match(js_route_path, route_path):
+                g.add_edge(js_node, route_node, relation="maps_to_source")
 
 
 def _paths_match(url_path: str, route_path: str) -> bool:

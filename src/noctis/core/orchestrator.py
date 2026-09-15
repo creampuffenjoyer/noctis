@@ -34,7 +34,7 @@ class PipelineStage(StrEnum):
 # Stages implemented so far. Anything past this point is logged and skipped
 # gracefully rather than crashing the pipeline, since later phases (risk
 # scoring, exploitation agents, validation, reporting) aren't built yet.
-IMPLEMENTED_STAGES = {PipelineStage.RECON, PipelineStage.GRAPH}
+IMPLEMENTED_STAGES = {PipelineStage.RECON, PipelineStage.GRAPH, PipelineStage.RISK, PipelineStage.PLANNER}
 
 ALL_STAGES = list(PipelineStage)
 
@@ -102,6 +102,10 @@ class Orchestrator:
             return await self._run_recon(repo_path=repo_path)
         if stage is PipelineStage.GRAPH:
             return await self._run_graph(prior_results.get("recon", {}))
+        if stage is PipelineStage.RISK:
+            return await self._run_risk(prior_results.get("graph", {}))
+        if stage is PipelineStage.PLANNER:
+            return await self._run_planner(prior_results.get("graph", {}), prior_results.get("risk", {}))
         raise NotImplementedError(f"Stage '{stage.value}' has no handler yet")
 
     async def _run_recon(self, *, repo_path: str | None) -> dict[str, Any]:
@@ -121,3 +125,39 @@ class Orchestrator:
 
         graph = build_attack_surface_graph(recon_result)
         return graph.to_dict()
+
+    async def _run_risk(self, graph_result: dict[str, Any]) -> dict[str, Any]:
+        from noctis.engines.graph.attack_surface import AttackSurfaceGraph
+        from noctis.engines.risk.risk_engine import RiskEngine
+
+        asg = AttackSurfaceGraph.from_dict(graph_result)
+        engine = RiskEngine()
+        scores = engine.score_graph(asg)
+        chains = engine.detect_chains(asg, scores)
+
+        return {
+            "scores": [s.to_dict() for s in scores],
+            "chains": [c.to_dict() for c in chains],
+        }
+
+    async def _run_planner(self, graph_result: dict[str, Any], risk_result: dict[str, Any]) -> dict[str, Any]:
+        from noctis.engines.graph.attack_surface import AttackSurfaceGraph
+        from noctis.engines.planner.test_planner import TestPlanner
+        from noctis.engines.risk.risk_engine import NodeRiskScore
+
+        asg = AttackSurfaceGraph.from_dict(graph_result)
+        scores = [
+            NodeRiskScore(
+                node_id=s["node_id"],
+                node_type=s["node_type"],
+                exploitability=s["exploitability"],
+                impact=s["impact"],
+                score=s["score"],
+                factors=s["factors"],
+            )
+            for s in risk_result.get("scores", [])
+        ]
+
+        planner = TestPlanner()
+        queue = planner.build_queue(asg, scores)
+        return {"queue": [t.to_dict() for t in queue]}

@@ -63,6 +63,10 @@ def main(
     """Noctis - autonomous AI pentesting tool."""
 
 
+def _shorten(text: str, limit: int = 60) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
 def _parse_scope_flag(scope: str | None) -> str | None:
     if scope is None:
         return None
@@ -201,6 +205,23 @@ def _run_pipeline(
         for node_type, count in summary.items():
             table.add_row(node_type, str(count))
         console.print(table)
+
+    if "planner" in results:
+        queue = results["planner"].get("queue", [])
+        table = Table(title=f"Exploitation Queue (top {min(10, len(queue))} of {len(queue)})")
+        table.add_column("Priority", justify="right")
+        table.add_column("Agent")
+        table.add_column("Node")
+        table.add_column("Rationale")
+        for task in queue[:10]:
+            table.add_row(
+                f"{task['priority_score']:.1f}",
+                task["agent_type"],
+                _shorten(task["node_id"]),
+                task["rationale"],
+            )
+        console.print(table)
+
     console.print(
         f"Run [bold]noctis report --workspace {ws.id} --format json[/bold] to view raw findings, "
         f"or [bold]noctis resume --workspace {ws.id}[/bold] once later phases are implemented."

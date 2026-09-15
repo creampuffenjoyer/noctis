@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/managed%20with-uv-de5fe9)](https://github.com/astral-sh/uv)
 [![Typer](https://img.shields.io/badge/CLI-Typer%20%2B%20Rich-6f42c1)](https://typer.tiangolo.com/)
-[![Status](https://img.shields.io/badge/status-phase%202%20of%2010-yellow)](#where%20it%20stands)
+[![Status](https://img.shields.io/badge/status-phase%203%20of%2010-yellow)](#where%20it%20stands)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Made for](https://img.shields.io/badge/made%20for-authorized%20engagements-critical)](#responsible%20use)
 
@@ -102,7 +102,9 @@ uv run noctis report --workspace <id> --format json
 | Web discovery (spider, fingerprinting, JS route extraction) | Done |
 | Static code analysis (routes, sinks, secrets) | Done |
 | NetworkX attack surface graph | Done |
-| Risk scoring + test planner | Planned |
+| Risk engine (exploitability x impact scoring, attack chain detection) | Done |
+| Test planner (prioritized exploitation queue) + concurrency manager | Done |
+| Exploit agent base class | Done |
 | Exploitation agents (SQLi, XSS, SSRF, Auth, IDOR, RCE, LFI, XXE) | Planned |
 | Validator + evidence store | Planned |
 | Report engine (PDF / SARIF / Markdown / JSON) | Planned |
