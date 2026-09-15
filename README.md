@@ -48,6 +48,13 @@ flowchart TD
 
 Everything an agent thinks or decides runs through a single model router, so swapping providers never means touching agent code.
 
+The pipeline maps onto standard pentest methodology: recon (`RECON`), threat
+modeling (`GRAPH` + `RISK`'s attack chain detection), vulnerability analysis
+(`RISK` scoring + `PLANNER`), and exploitation (`EXPLOIT`). Reporting lands
+in Phase 6. Post-exploitation/chaining confirmed findings together into a
+deeper attack narrative isn't in the plan yet -- that's a real gap, not an
+oversight, and will need its own phase between `EXPLOIT` and `VALIDATE`.
+
 ## Getting started
 
 ```bash
@@ -105,6 +112,23 @@ uv run noctis resume --workspace <id> --exploit
 # Or do both in one shot (still prompts for confirmation unless --yes)
 uv run noctis scan --url https://example.com --repo /path/to/code --exploit
 ```
+
+That queue-then-confirm behavior is about the EXPLOIT stage specifically and
+always applies. Separately, `--mode` controls how the earlier, read-only
+stages (recon/graph/risk/planner) are paced:
+
+```bash
+# continuous (default): recon -> graph -> risk -> planner run back to back
+uv run noctis scan --url https://example.com --mode continuous
+
+# guided: pause after every single stage, review, then `resume` to continue
+uv run noctis scan --url https://example.com --mode guided
+uv run noctis resume --workspace <id> --mode guided   # advances exactly one stage
+```
+
+Either mode can be stopped early with Ctrl-C -- the first press finishes the
+stage currently running rather than killing it mid-request, then pauses at
+that boundary; a second Ctrl-C force-quits if something's stuck.
 
 ## Where it stands
 

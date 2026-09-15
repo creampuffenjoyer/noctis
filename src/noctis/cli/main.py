@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import signal
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -22,7 +23,7 @@ from rich.table import Table
 
 from noctis.config.settings import ModelProvider, get_settings
 from noctis.core.model_router import ModelRouter
-from noctis.core.orchestrator import ALL_STAGES, IMPLEMENTED_STAGES, Orchestrator, PipelineStage
+from noctis.core.orchestrator import ALL_STAGES, IMPLEMENTED_STAGES, Orchestrator, PipelineStage, RunMode
 from noctis.core.scope import ScopeEngine
 from noctis.core.workspace import WorkspaceManager, WorkspaceNotFoundError
 
@@ -40,12 +41,43 @@ STAGE_ICONS = {
     "failed": "[red]FAIL[/red]",
     "skipped (already completed, resumed from cache)": "[yellow]SKIP[/yellow]",
     "not yet implemented - stopping pipeline here": "[yellow]...[/yellow]",
+    "guided mode - phase complete, rerun with resume to continue": "[yellow]PAUSE[/yellow]",
+    "stop requested - pausing here, rerun with resume to continue": "[yellow]STOP[/yellow]",
 }
 
 
 def _setup_logging(workspace_dir: Path | None = None) -> None:
     handlers = [RichHandler(console=console, show_path=False, rich_tracebacks=True)]
     logging.basicConfig(level=logging.INFO, format="%(message)s", handlers=handlers)
+
+
+class _GracefulStop:
+    """First Ctrl-C sets a flag the orchestrator checks between stages, so the
+    currently running stage finishes instead of being killed mid-request.
+    A second Ctrl-C forces an immediate exit for when a stage hangs.
+    """
+
+    def __init__(self) -> None:
+        self.requested = False
+        self._original_handler = None
+
+    def __enter__(self) -> "_GracefulStop":
+        self._original_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, self._handle)
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        signal.signal(signal.SIGINT, self._original_handler)
+
+    def _handle(self, signum, frame) -> None:
+        if self.requested:
+            signal.signal(signal.SIGINT, self._original_handler)
+            raise KeyboardInterrupt
+        self.requested = True
+        console.print("\n[yellow]Stop requested - finishing the current phase, then pausing (Ctrl-C again to force quit)[/yellow]")
+
+    def check(self) -> bool:
+        return self.requested
 
 
 def _version_callback(value: bool) -> None:
@@ -93,6 +125,13 @@ def scan(
         bool, typer.Option("--exploit", help="Launch exploitation agents against the prioritized queue")
     ] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the exploitation confirmation prompt")] = False,
+    mode: Annotated[
+        RunMode,
+        typer.Option(
+            "--mode",
+            help="continuous runs every stage back to back; guided pauses after each one for review",
+        ),
+    ] = RunMode.CONTINUOUS,
 ) -> None:
     """Start a new scan against URL."""
     _setup_logging()
@@ -131,6 +170,7 @@ def scan(
             ", ".join(s.value for s in ALL_STAGES if s in IMPLEMENTED_STAGES),
         )
         table.add_row("Exploitation agents", "would run (--exploit passed)" if exploit else "queue only, not launched")
+        table.add_row("Mode", mode.value)
         table.add_row(
             "Stages not yet implemented",
             ", ".join(s.value for s in ALL_STAGES if s not in IMPLEMENTED_STAGES),
@@ -149,7 +189,14 @@ def scan(
     console.print(f"[bold green]Workspace created:[/bold green] {workspace.id}")
 
     _run_pipeline(
-        workspace_manager, workspace.id, scope_engine, settings, repo_path=repo, resume=False, run_exploit=exploit
+        workspace_manager,
+        workspace.id,
+        scope_engine,
+        settings,
+        repo_path=repo,
+        resume=False,
+        run_exploit=exploit,
+        mode=mode,
     )
 
 
@@ -160,6 +207,13 @@ def resume(
         bool, typer.Option("--exploit", help="Launch exploitation agents against the prioritized queue")
     ] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the exploitation confirmation prompt")] = False,
+    mode: Annotated[
+        RunMode,
+        typer.Option(
+            "--mode",
+            help="continuous runs every stage back to back; guided pauses after each one for review",
+        ),
+    ] = RunMode.CONTINUOUS,
 ) -> None:
     """Resume an interrupted scan."""
     _setup_logging()
@@ -186,7 +240,14 @@ def resume(
     )
     console.print(f"[bold]Resuming workspace {ws.id}[/bold] (target: {ws.target})")
     _run_pipeline(
-        workspace_manager, ws.id, scope_engine, settings, repo_path=ws.repo_path, resume=True, run_exploit=exploit
+        workspace_manager,
+        ws.id,
+        scope_engine,
+        settings,
+        repo_path=ws.repo_path,
+        resume=True,
+        run_exploit=exploit,
+        mode=mode,
     )
 
 
@@ -199,6 +260,7 @@ def _run_pipeline(
     repo_path: str | None,
     resume: bool,
     run_exploit: bool = False,
+    mode: RunMode = RunMode.CONTINUOUS,
 ) -> None:
     ws = workspace_manager.get(workspace_id)
 
@@ -215,9 +277,13 @@ def _run_pipeline(
         on_stage=on_stage,
     )
 
-    with console.status("[bold cyan]Running Noctis pipeline...", spinner="dots"):
+    with _GracefulStop() as stop, console.status("[bold cyan]Running Noctis pipeline...", spinner="dots"):
         try:
-            results = asyncio.run(orchestrator.run(repo_path=repo_path, resume=resume, run_exploit=run_exploit))
+            results = asyncio.run(
+                orchestrator.run(
+                    repo_path=repo_path, resume=resume, run_exploit=run_exploit, mode=mode, stop_check=stop.check
+                )
+            )
         except Exception as exc:
             if workspace_manager.get(workspace_id).status == "running":
                 workspace_manager.update_status(workspace_id, "failed")
@@ -276,11 +342,16 @@ def _run_pipeline(
         if errors:
             console.print(f"[yellow]{len(errors)} agent(s) errored out (see workspace log for details)[/yellow]")
 
-    if "planner" in results and "exploit" not in results:
+    final_ws = workspace_manager.get(workspace_id)
+    if final_ws.status == "paused" and final_ws.stage == "exploit" and "exploit" not in results:
         console.print(
             f"Run [bold]noctis resume --workspace {ws.id} --exploit[/bold] to launch exploitation agents "
             f"against the queue above, once you've reviewed it."
         )
+    elif final_ws.status == "paused":
+        mode_flag = f" --mode {mode.value}" if mode is not RunMode.CONTINUOUS else ""
+        console.print(f"Run [bold]noctis resume --workspace {ws.id}{mode_flag}[/bold] to continue.")
+
     console.print(f"Run [bold]noctis report --workspace {ws.id} --format json[/bold] to view raw findings.")
 
 

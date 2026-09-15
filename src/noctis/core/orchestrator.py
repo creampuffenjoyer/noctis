@@ -31,6 +31,17 @@ class PipelineStage(StrEnum):
     REPORT = "report"
 
 
+class RunMode(StrEnum):
+    """CONTINUOUS runs every implemented stage back to back (still respecting
+    the EXPLOIT --exploit gate). GUIDED pauses after every single stage so the
+    tester reviews and explicitly `resume`s before the next one runs -- the
+    same mechanism the EXPLOIT gate already uses, generalized to every stage.
+    """
+
+    CONTINUOUS = "continuous"
+    GUIDED = "guided"
+
+
 # Stages implemented so far. Anything past this point is logged and skipped
 # gracefully rather than crashing the pipeline, since later phases (risk
 # scoring, exploitation agents, validation, reporting) aren't built yet.
@@ -66,11 +77,37 @@ class Orchestrator:
         self.workspace_manager.log(self.workspace.id, f"[{stage.value}] {status}")
         self.on_stage(stage, status)
 
+    @staticmethod
+    def _would_continue_automatically(completed_stage: PipelineStage, run_exploit: bool) -> bool:
+        """Whether the stage after `completed_stage` would run on its own
+        without guided mode's extra pause -- i.e. it's implemented and isn't
+        itself gated behind an unmet --exploit flag. Used so guided mode
+        doesn't insert a redundant pause right before a gate that would have
+        stopped the pipeline anyway (the EXPLOIT gate, or the not-yet-
+        implemented boundary), which would otherwise print two pause
+        messages back to back for the same stopping point.
+        """
+        next_index = ALL_STAGES.index(completed_stage) + 1
+        if next_index >= len(ALL_STAGES):
+            return False
+        next_stage = ALL_STAGES[next_index]
+        if next_stage not in IMPLEMENTED_STAGES:
+            return False
+        if next_stage is PipelineStage.EXPLOIT and not run_exploit:
+            return False
+        return True
+
     async def run(
-        self, repo_path: str | None = None, resume: bool = False, run_exploit: bool = False
+        self,
+        repo_path: str | None = None,
+        resume: bool = False,
+        run_exploit: bool = False,
+        mode: RunMode = RunMode.CONTINUOUS,
+        stop_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         results: dict[str, Any] = {}
         self.workspace_manager.update_status(self.workspace.id, "running")
+        stop_check = stop_check or (lambda: False)
 
         for stage in ALL_STAGES:
             if resume:
@@ -79,6 +116,13 @@ class Orchestrator:
                     self._notify(stage, "skipped (already completed, resumed from cache)")
                     results[stage.value] = cached
                     continue
+
+            # checked at a stage boundary only, never mid-stage: a graceful
+            # stop lets whatever's currently running finish first
+            if stop_check():
+                self._notify(stage, "stop requested - pausing here, rerun with resume to continue")
+                self.workspace_manager.update_status(self.workspace.id, "paused", stage=stage.value)
+                break
 
             if stage is PipelineStage.EXPLOIT and not run_exploit:
                 self._notify(stage, "queue ready for review - rerun with --exploit to launch agents")
@@ -102,6 +146,11 @@ class Orchestrator:
             results[stage.value] = stage_result
             self.workspace_manager.save_stage_data(self.workspace.id, stage.value, stage_result)
             self._notify(stage, "completed")
+
+            if mode is RunMode.GUIDED and self._would_continue_automatically(stage, run_exploit):
+                self._notify(stage, "guided mode - phase complete, rerun with resume to continue")
+                self.workspace_manager.update_status(self.workspace.id, "paused", stage=stage.value)
+                break
 
         else:
             self.workspace_manager.update_status(self.workspace.id, "completed")
