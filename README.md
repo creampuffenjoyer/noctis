@@ -1,4 +1,4 @@
-# Noctis
+# 𝓝𝓸𝓬𝓽𝓲𝓼
 
 **An autonomous AI pentester that finds real vulnerabilities, proves them with working exploits, and writes the report for you.**
 
