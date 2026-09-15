@@ -75,6 +75,7 @@ class IDORAgent(HttpAgent):
                 f"gated by an ownership check (single-session heuristic, not confirmed against a "
                 f"second identity)"
             ),
+            poc_request=self._poc_request("GET", mutated_url),
         )
 
     def _path_candidates(self, url: str) -> list[tuple[str, str, str]]:

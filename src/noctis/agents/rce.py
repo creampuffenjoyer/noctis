@@ -67,6 +67,7 @@ class RCEAgent(HttpAgent):
                     request=self._format_request(self.target.method, url, body),
                     response=self._format_response(response),
                     evidence=f"command injection confirmed on param '{param}': injected marker '{marker}' echoed back in response",
+                    poc_request=self._poc_request(self.target.method, url, body),
                 )
         return None
 
@@ -89,6 +90,7 @@ class RCEAgent(HttpAgent):
                     request=self._format_request(self.target.method, url, body),
                     response=self._format_response(response),
                     evidence=f"template injection (SSTI) on param '{param}': '{payload}' evaluated to '{expected}'",
+                    poc_request=self._poc_request(self.target.method, url, body),
                 )
         return None
 
@@ -125,5 +127,6 @@ class RCEAgent(HttpAgent):
                     request=self._format_request(self.target.method, url, body),
                     response=self._format_response(response),
                     evidence=f"time-blind command injection on param '{param}': response took {elapsed:.1f}s for a {delay}s sleep payload",
+                    poc_request=self._poc_request(self.target.method, url, body),
                 )
         return None

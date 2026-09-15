@@ -51,6 +51,7 @@ IMPLEMENTED_STAGES = {
     PipelineStage.RISK,
     PipelineStage.PLANNER,
     PipelineStage.EXPLOIT,
+    PipelineStage.VALIDATE,
 }
 
 ALL_STAGES = list(PipelineStage)
@@ -172,6 +173,10 @@ class Orchestrator:
             return await self._run_exploit(
                 prior_results.get("planner", {}), prior_results.get("graph", {}), repo_path=repo_path
             )
+        if stage is PipelineStage.VALIDATE:
+            return await self._run_validate(
+                prior_results.get("exploit", {}), prior_results.get("graph", {}), repo_path=repo_path
+            )
         raise NotImplementedError(f"Stage '{stage.value}' has no handler yet")
 
     async def _run_recon(self, *, repo_path: str | None) -> dict[str, Any]:
@@ -267,3 +272,17 @@ class Orchestrator:
         findings = [t for t in task_results if t.get("result") and t["result"].get("found")]
 
         return {"tasks": task_results, "findings": findings, "total": len(queue), "found": len(findings)}
+
+    async def _run_validate(
+        self, exploit_result: dict[str, Any], graph_result: dict[str, Any], *, repo_path: str | None
+    ) -> dict[str, Any]:
+        from noctis.validator.validator import Validator
+
+        validator = Validator(
+            workspace_manager=self.workspace_manager,
+            workspace_id=self.workspace.id,
+            scope=self.scope,
+            settings=self.settings,
+            model_router=self.model_router,
+        )
+        return await validator.validate_findings(exploit_result, graph_result, repo_path=repo_path)

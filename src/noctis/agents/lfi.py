@@ -48,6 +48,7 @@ class LFIAgent(HttpAgent):
                         request=self._format_request(self.target.method, url, body),
                         response=self._format_response(response),
                         evidence=f"path traversal on param '{param}' returned a file containing '{signature}'",
+                        poc_request=self._poc_request(self.target.method, url, body),
                     )
 
         return AgentResult(found=False, notes=f"no LFI confirmed across {len(self.target.param_names)} param(s)")

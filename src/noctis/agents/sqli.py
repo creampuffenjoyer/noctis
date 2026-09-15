@@ -91,6 +91,7 @@ class SQLiAgent(HttpAgent):
             request=self._format_request(self.target.method, url, body),
             response=self._format_response(response),
             evidence=f"database error signature '{matched}' returned for param '{param}'",
+            poc_request=self._poc_request(self.target.method, url, body),
         )
 
     async def _boolean_based(self, param: str, baseline) -> AgentResult | None:
@@ -120,6 +121,7 @@ class SQLiAgent(HttpAgent):
                         f"boolean-blind SQLi on param '{param}': TRUE response matches baseline "
                         f"length ({true_len} vs {base_len}), FALSE response diverges ({false_len})"
                     ),
+                    poc_request=self._poc_request(self.target.method, true_url, true_body),
                 )
         return None
 
@@ -144,6 +146,7 @@ class SQLiAgent(HttpAgent):
                     request=self._format_request(self.target.method, url, body),
                     response=self._format_response(response),
                     evidence=f"time-blind SQLi on param '{param}': response took {elapsed:.1f}s for a {delay}s sleep payload",
+                    poc_request=self._poc_request(self.target.method, url, body),
                 )
         return None
 

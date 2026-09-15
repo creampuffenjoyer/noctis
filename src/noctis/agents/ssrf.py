@@ -63,6 +63,7 @@ class SSRFAgent(HttpAgent):
                         request=self._format_request(self.target.method, url, body),
                         response=self._format_response(response),
                         evidence=f"metadata signature '{signature}' reflected via param '{param}' -> SSRF confirmed",
+                        poc_request=self._poc_request(self.target.method, url, body),
                     )
 
             if self.context.settings.interactsh_server:

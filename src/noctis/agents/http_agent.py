@@ -60,3 +60,9 @@ class HttpAgent(BaseAgent):
     def _format_response(response: httpx.Response, limit: int = 500) -> str:
         text = response.text[:limit]
         return f"HTTP {response.status_code} ({len(response.text)} bytes)\n{text}"
+
+    @staticmethod
+    def _poc_request(
+        method: str, url: str, data: dict[str, str] | None = None, content: str | None = None
+    ) -> dict:
+        return {"method": method, "url": url, "data": data, "content": content}

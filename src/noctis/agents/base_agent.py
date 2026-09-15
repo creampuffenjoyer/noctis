@@ -22,6 +22,13 @@ class AgentResult:
     response: str = ""
     evidence: str = ""
     notes: str = ""
+    # structured replay recipe for the Validator/PoC generator (Phase 5), when
+    # the finding is a plain HTTP request the Validator can resend directly.
+    # None for agents where that doesn't make sense (XSS needs a browser, JWT
+    # forgery needs custom headers) -- left for a documentation-style PoC instead.
+    poc_request: dict[str, Any] | None = None
+    # path to a saved screenshot on disk, if the confirming agent captured one
+    screenshot_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -31,6 +38,8 @@ class AgentResult:
             "response": self.response,
             "evidence": self.evidence,
             "notes": self.notes,
+            "poc_request": self.poc_request,
+            "screenshot_path": self.screenshot_path,
         }
 
 

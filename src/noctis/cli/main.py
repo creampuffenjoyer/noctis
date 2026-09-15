@@ -342,6 +342,36 @@ def _run_pipeline(
         if errors:
             console.print(f"[yellow]{len(errors)} agent(s) errored out (see workspace log for details)[/yellow]")
 
+    if "validate" in results:
+        validate_results = results["validate"]
+        confirmed = [f for f in validate_results.get("findings", []) if f.get("reproduced")]
+        discarded = [f for f in validate_results.get("findings", []) if not f.get("reproduced")]
+        console.print(
+            f"\n[bold]Validated findings:[/bold] {len(confirmed)} confirmed, "
+            f"{len(discarded)} discarded (didn't reproduce on independent replay)"
+        )
+        if confirmed:
+            table = Table(title="Confirmed Findings (validated)")
+            table.add_column("Severity")
+            table.add_column("CVSS", justify="right")
+            table.add_column("Agent")
+            table.add_column("OWASP")
+            table.add_column("ATT&CK")
+            table.add_column("Evidence")
+            severity_color = {"Critical": "red", "High": "red", "Medium": "yellow", "Low": "green"}
+            for f in sorted(confirmed, key=lambda x: x.get("cvss_score") or 0, reverse=True):
+                color = severity_color.get(f.get("severity"), "white")
+                table.add_row(
+                    f"[{color}]{f.get('severity', '?')}[/{color}]",
+                    f"{f.get('cvss_score', 0):.1f}",
+                    f["agent_type"],
+                    _shorten(f.get("owasp_category", ""), 30),
+                    _shorten(f.get("attack_technique", ""), 30),
+                    _shorten(f.get("evidence", "")),
+                )
+            console.print(table)
+            console.print(f"Evidence (request/response, PoC scripts, screenshots) saved under workspaces/{ws.id}/evidence/")
+
     final_ws = workspace_manager.get(workspace_id)
     if final_ws.status == "paused" and final_ws.stage == "exploit" and "exploit" not in results:
         console.print(

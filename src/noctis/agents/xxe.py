@@ -51,9 +51,10 @@ class XXEAgent(HttpAgent):
                 return AgentResult(
                     found=True,
                     payload=payload,
-                    request=self._format_request("POST", url, {"body": payload}),
+                    request=f"POST {url}\nContent-Type: application/xml\nbody: {payload}",
                     response=self._format_response(response),
                     evidence=f"XXE external entity resolved to a local file containing '{signature}'",
+                    poc_request=self._poc_request("POST", url, content=payload),
                 )
 
         note = "no XXE confirmed with local file entities"
