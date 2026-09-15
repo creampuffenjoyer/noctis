@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import signal
 import sys
@@ -385,10 +384,13 @@ def _run_pipeline(
     console.print(f"Run [bold]noctis report --workspace {ws.id} --format json[/bold] to view raw findings.")
 
 
+REPORT_FORMATS = ("json", "markdown", "sarif", "pdf")
+
+
 @app.command()
 def report(
     workspace: Annotated[str, typer.Option("--workspace", help="Workspace ID")],
-    format: Annotated[str, typer.Option("--format", help="Output format: json (others not implemented yet)")] = "json",
+    format: Annotated[str, typer.Option("--format", help="Output format: json|markdown|sarif|pdf")] = "json",
 ) -> None:
     """Generate a report from a completed (or in-progress) scan."""
     settings = get_settings()
@@ -400,23 +402,26 @@ def report(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
-    if format != "json":
-        console.print(
-            f"[yellow]Format '{format}' is not implemented yet[/yellow] "
-            "(PDF/Markdown/SARIF generation is planned for Phase 6). Try --format json."
-        )
+    if format not in REPORT_FORMATS:
+        console.print(f"[red]Unknown format '{format}'.[/red] Choose one of: {', '.join(REPORT_FORMATS)}")
         raise typer.Exit(code=1)
 
-    data = {"workspace": ws.__dict__}
-    for stage in ALL_STAGES:
-        stage_data = workspace_manager.load_stage_data(ws.id, stage.value)
-        if stage_data is not None:
-            data[stage.value] = stage_data
+    from noctis.reporting import json_generator, markdown_generator, pdf_generator, sarif_generator
+    from noctis.reporting.report_data import build_report_data
 
-    report_path = workspace_manager.path(ws.id) / "reports" / "report.json"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    generators = {
+        "json": json_generator.generate,
+        "markdown": markdown_generator.generate,
+        "sarif": sarif_generator.generate,
+        "pdf": pdf_generator.generate,
+    }
+
+    data = build_report_data(ws, workspace_manager)
+    output_dir = workspace_manager.path(ws.id) / "reports"
+    report_path = generators[format](data, output_dir)
     console.print(f"[green]Report written to[/green] {report_path}")
+    if not data.findings:
+        console.print("[yellow]No confirmed findings yet[/yellow] -- run with --exploit and let VALIDATE complete first.")
 
 
 @workspaces_app.command("list")

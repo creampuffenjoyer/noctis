@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/managed%20with-uv-de5fe9)](https://github.com/astral-sh/uv)
 [![Typer](https://img.shields.io/badge/CLI-Typer%20%2B%20Rich-6f42c1)](https://typer.tiangolo.com/)
-[![Status](https://img.shields.io/badge/status-phase%205%20of%2010-yellow)](#where%20it%20stands)
+[![Status](https://img.shields.io/badge/status-phase%206%20of%2010-yellow)](#where%20it%20stands)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Made for](https://img.shields.io/badge/made%20for-authorized%20engagements-critical)](#responsible%20use)
 
@@ -94,8 +94,11 @@ uv run noctis workspaces list
 # Resume an interrupted scan
 uv run noctis resume --workspace <id>
 
-# Dump raw findings for a workspace
+# Generate a report once VALIDATE has run -- json | markdown | sarif | pdf
 uv run noctis report --workspace <id> --format json
+uv run noctis report --workspace <id> --format markdown
+uv run noctis report --workspace <id> --format sarif
+uv run noctis report --workspace <id> --format pdf
 ```
 
 Noctis is built as a triage tool you work with, not something you point and
@@ -148,12 +151,14 @@ that boundary; a second Ctrl-C force-quits if something's stuck.
 | Validator (independent replay, false-positive filtering) | Done |
 | CVSS v3.1 scoring + severity, OWASP Top 10 / MITRE ATT&CK classification | Done |
 | Evidence store (request/response, PoC scripts, XSS screenshots) | Done |
-| Report engine (PDF / SARIF / Markdown / JSON) | Planned |
+| Report engine (PDF / SARIF 2.1.0 / Markdown / JSON) | Done |
 | FastAPI backend + React dashboard | Planned |
 
 `noctis scan` runs every stage that exists today and stops cleanly once it reaches one that doesn't, rather than pretending to finish. The exploitation stage additionally never fires without an explicit `--exploit` flag (and a confirmation prompt, unless `CONFIRM_DESTRUCTIVE=false` or `--yes`) -- Noctis is meant to be a triage tool you operate, not something that attacks a target on its own.
 
 Every confirmed finding is re-run independently by the Validator (a fresh agent instance, not just re-checking a cached request) before it's kept -- if it doesn't reproduce, it's discarded but still shown to you, not silently dropped. Kept findings get a CVSS v3.1 base score (the real formula, against a documented heuristic vector per vulnerability class -- there's no human assessor in the loop, so treat it as a starting point), an OWASP Top 10 2021 category, and a MITRE ATT&CK tactic/technique. The ATT&CK mapping is mostly Initial Access (T1190 - Exploit Public-Facing Application) since Noctis tests a web app from the outside and doesn't model post-exploitation yet; `auth`/`credential_exposure` findings get more specific Credential Access techniques. No CVE IDs are attached -- Noctis's findings are dynamically confirmed against custom application logic, not matched against a known-vulnerability feed, so a CVE tag would be fabricated rather than real.
+
+The report engine uses ReportLab for PDF generation, not WeasyPrint as the original plan suggested -- WeasyPrint needs a native GTK3 runtime that a plain Windows install doesn't have (confirmed by trying it), which would break the project's own cross-platform requirement. ReportLab is a pure-Python wheel with no native dependency, so it Just Works on Windows and Kali alike. The PDF keeps the dark, red/cyan cyberpunk theme the plan asked for: cover page, executive summary, scope & methodology, a findings table sorted by severity, one detail section per finding (CVSS/OWASP/ATT&CK/evidence/remediation, with the XSS screenshot embedded when there is one), and an appendix with every raw request/response. SARIF output is 2.1.0 and uses the spec's `webRequest` field for HTTP-based findings rather than forcing them into a fake source-file location.
 
 Every agent only reports `found=true` after its own immediate re-check reproduces the result, and defaults to safe, non-destructive confirmation techniques (blind/time-based detection, benign canaries, reading a known-harmless file) rather than full exploitation. Heavier techniques -- an actual sqlmap data-extraction pass, default-credential guessing -- stay behind `CONFIRM_DESTRUCTIVE=false` in `.env`.
 
