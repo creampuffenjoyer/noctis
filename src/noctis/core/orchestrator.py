@@ -34,7 +34,13 @@ class PipelineStage(StrEnum):
 # Stages implemented so far. Anything past this point is logged and skipped
 # gracefully rather than crashing the pipeline, since later phases (risk
 # scoring, exploitation agents, validation, reporting) aren't built yet.
-IMPLEMENTED_STAGES = {PipelineStage.RECON, PipelineStage.GRAPH, PipelineStage.RISK, PipelineStage.PLANNER}
+IMPLEMENTED_STAGES = {
+    PipelineStage.RECON,
+    PipelineStage.GRAPH,
+    PipelineStage.RISK,
+    PipelineStage.PLANNER,
+    PipelineStage.EXPLOIT,
+}
 
 ALL_STAGES = list(PipelineStage)
 
@@ -60,7 +66,9 @@ class Orchestrator:
         self.workspace_manager.log(self.workspace.id, f"[{stage.value}] {status}")
         self.on_stage(stage, status)
 
-    async def run(self, repo_path: str | None = None, resume: bool = False) -> dict[str, Any]:
+    async def run(
+        self, repo_path: str | None = None, resume: bool = False, run_exploit: bool = False
+    ) -> dict[str, Any]:
         results: dict[str, Any] = {}
         self.workspace_manager.update_status(self.workspace.id, "running")
 
@@ -71,6 +79,11 @@ class Orchestrator:
                     self._notify(stage, "skipped (already completed, resumed from cache)")
                     results[stage.value] = cached
                     continue
+
+            if stage is PipelineStage.EXPLOIT and not run_exploit:
+                self._notify(stage, "queue ready for review - rerun with --exploit to launch agents")
+                self.workspace_manager.update_status(self.workspace.id, "paused", stage=stage.value)
+                break
 
             if stage not in IMPLEMENTED_STAGES:
                 self._notify(stage, "not yet implemented - stopping pipeline here")
@@ -106,6 +119,10 @@ class Orchestrator:
             return await self._run_risk(prior_results.get("graph", {}))
         if stage is PipelineStage.PLANNER:
             return await self._run_planner(prior_results.get("graph", {}), prior_results.get("risk", {}))
+        if stage is PipelineStage.EXPLOIT:
+            return await self._run_exploit(
+                prior_results.get("planner", {}), prior_results.get("graph", {}), repo_path=repo_path
+            )
         raise NotImplementedError(f"Stage '{stage.value}' has no handler yet")
 
     async def _run_recon(self, *, repo_path: str | None) -> dict[str, Any]:
@@ -161,3 +178,43 @@ class Orchestrator:
         planner = TestPlanner()
         queue = planner.build_queue(asg, scores)
         return {"queue": [t.to_dict() for t in queue]}
+
+    async def _run_exploit(
+        self, planner_result: dict[str, Any], graph_result: dict[str, Any], *, repo_path: str | None
+    ) -> dict[str, Any]:
+        from noctis.agents.base_agent import AgentContext
+        from noctis.agents.registry import AGENT_REGISTRY
+        from noctis.engines.planner.test_planner import ConcurrencyManager
+
+        queue = planner_result.get("queue", [])
+        nodes_by_id = {n["id"]: n for n in graph_result.get("graph", {}).get("nodes", [])}
+        concurrency = ConcurrencyManager(self.settings.max_workers)
+
+        async def run_task(task: dict[str, Any]) -> dict[str, Any]:
+            agent_cls = AGENT_REGISTRY.get(task["agent_type"])
+            if agent_cls is None:
+                return {**task, "result": None, "error": f"no agent registered for '{task['agent_type']}'"}
+
+            context = AgentContext(
+                node_id=task["node_id"],
+                node_data=nodes_by_id.get(task["node_id"], {}),
+                scope=self.scope,
+                model_router=self.model_router,
+                settings=self.settings,
+                workspace_id=self.workspace.id,
+                workspace_manager=self.workspace_manager,
+                rationale=task["rationale"],
+                repo_path=repo_path,
+            )
+            agent = agent_cls(context)
+            try:
+                result = await agent.execute()
+            except Exception as exc:
+                logger.exception("agent %s failed on node %s", task["agent_type"], task["node_id"])
+                return {**task, "result": None, "error": str(exc)}
+            return {**task, "result": result.to_dict(), "error": None}
+
+        task_results = await concurrency.run_tasks(queue, run_task)
+        findings = [t for t in task_results if t.get("result") and t["result"].get("found")]
+
+        return {"tasks": task_results, "findings": findings, "total": len(queue), "found": len(findings)}

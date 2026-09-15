@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import networkx as nx
 
@@ -62,6 +62,7 @@ def _add_web_nodes(g: nx.DiGraph, web: dict[str, Any]) -> None:
             url=endpoint["url"],
             source=endpoint.get("source", "crawl"),
             auth_required=False,
+            inputs=list(parse_qs(urlparse(endpoint["url"]).query).keys()),
         )
         g.add_edge(ROOT_NODE, node_id, relation="discovered")
 

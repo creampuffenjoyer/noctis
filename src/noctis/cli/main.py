@@ -89,11 +89,22 @@ def scan(
     include: Annotated[list[str] | None, typer.Option("--include", help="Glob pattern to include (repeatable)")] = None,
     exclude: Annotated[list[str] | None, typer.Option("--exclude", help="Glob pattern to exclude (repeatable)")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show what would run without doing it")] = False,
+    exploit: Annotated[
+        bool, typer.Option("--exploit", help="Launch exploitation agents against the prioritized queue")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the exploitation confirmation prompt")] = False,
 ) -> None:
     """Start a new scan against URL."""
     _setup_logging()
     settings = get_settings()
     model = model or settings.default_model
+
+    if exploit and not dry_run and settings.confirm_destructive and not yes:
+        typer.confirm(
+            f"This will launch real exploitation agents (SQLi, XSS, SSRF, Auth, IDOR, RCE, LFI, XXE) "
+            f"against {url}. You confirm you are authorized to test this target. Continue?",
+            abort=True,
+        )
 
     include_patterns = list(include or [])
     scope_pattern = _parse_scope_flag(scope)
@@ -119,6 +130,7 @@ def scan(
             "Stages that would run",
             ", ".join(s.value for s in ALL_STAGES if s in IMPLEMENTED_STAGES),
         )
+        table.add_row("Exploitation agents", "would run (--exploit passed)" if exploit else "queue only, not launched")
         table.add_row(
             "Stages not yet implemented",
             ", ".join(s.value for s in ALL_STAGES if s not in IMPLEMENTED_STAGES),
@@ -136,12 +148,18 @@ def scan(
     )
     console.print(f"[bold green]Workspace created:[/bold green] {workspace.id}")
 
-    _run_pipeline(workspace_manager, workspace.id, scope_engine, settings, repo_path=repo, resume=False)
+    _run_pipeline(
+        workspace_manager, workspace.id, scope_engine, settings, repo_path=repo, resume=False, run_exploit=exploit
+    )
 
 
 @app.command()
 def resume(
     workspace: Annotated[str, typer.Option("--workspace", help="Workspace ID to resume")],
+    exploit: Annotated[
+        bool, typer.Option("--exploit", help="Launch exploitation agents against the prioritized queue")
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip the exploitation confirmation prompt")] = False,
 ) -> None:
     """Resume an interrupted scan."""
     _setup_logging()
@@ -154,13 +172,22 @@ def resume(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
+    if exploit and settings.confirm_destructive and not yes:
+        typer.confirm(
+            f"This will launch real exploitation agents (SQLi, XSS, SSRF, Auth, IDOR, RCE, LFI, XXE) "
+            f"against {ws.target}. You confirm you are authorized to test this target. Continue?",
+            abort=True,
+        )
+
     scope_engine = ScopeEngine(
         target=ws.target,
         include=ws.scope.get("include", []),
         exclude=ws.scope.get("exclude", []),
     )
     console.print(f"[bold]Resuming workspace {ws.id}[/bold] (target: {ws.target})")
-    _run_pipeline(workspace_manager, ws.id, scope_engine, settings, repo_path=ws.repo_path, resume=True)
+    _run_pipeline(
+        workspace_manager, ws.id, scope_engine, settings, repo_path=ws.repo_path, resume=True, run_exploit=exploit
+    )
 
 
 def _run_pipeline(
@@ -171,6 +198,7 @@ def _run_pipeline(
     *,
     repo_path: str | None,
     resume: bool,
+    run_exploit: bool = False,
 ) -> None:
     ws = workspace_manager.get(workspace_id)
 
@@ -189,7 +217,7 @@ def _run_pipeline(
 
     with console.status("[bold cyan]Running Noctis pipeline...", spinner="dots"):
         try:
-            results = asyncio.run(orchestrator.run(repo_path=repo_path, resume=resume))
+            results = asyncio.run(orchestrator.run(repo_path=repo_path, resume=resume, run_exploit=run_exploit))
         except Exception as exc:
             if workspace_manager.get(workspace_id).status == "running":
                 workspace_manager.update_status(workspace_id, "failed")
@@ -222,10 +250,38 @@ def _run_pipeline(
             )
         console.print(table)
 
-    console.print(
-        f"Run [bold]noctis report --workspace {ws.id} --format json[/bold] to view raw findings, "
-        f"or [bold]noctis resume --workspace {ws.id}[/bold] once later phases are implemented."
-    )
+    if "exploit" in results:
+        exploit_results = results["exploit"]
+        findings = exploit_results.get("findings", [])
+        console.print(
+            f"\n[bold]Exploitation results:[/bold] {exploit_results.get('found', 0)} confirmed "
+            f"of {exploit_results.get('total', 0)} attempted"
+        )
+        if findings:
+            table = Table(title="Confirmed Findings")
+            table.add_column("Agent")
+            table.add_column("Node")
+            table.add_column("Payload")
+            table.add_column("Evidence")
+            for f in findings:
+                result = f.get("result", {})
+                table.add_row(
+                    f["agent_type"],
+                    _shorten(f["node_id"]),
+                    _shorten(result.get("payload", ""), 40),
+                    _shorten(result.get("evidence", "")),
+                )
+            console.print(table)
+        errors = [t for t in exploit_results.get("tasks", []) if t.get("error")]
+        if errors:
+            console.print(f"[yellow]{len(errors)} agent(s) errored out (see workspace log for details)[/yellow]")
+
+    if "planner" in results and "exploit" not in results:
+        console.print(
+            f"Run [bold]noctis resume --workspace {ws.id} --exploit[/bold] to launch exploitation agents "
+            f"against the queue above, once you've reviewed it."
+        )
+    console.print(f"Run [bold]noctis report --workspace {ws.id} --format json[/bold] to view raw findings.")
 
 
 @app.command()

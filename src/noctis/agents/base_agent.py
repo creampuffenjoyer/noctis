@@ -48,6 +48,7 @@ class AgentContext:
     workspace_id: str
     workspace_manager: WorkspaceManager
     rationale: str = ""
+    repo_path: str | None = None
 
 
 class BaseAgent(ABC):
@@ -74,7 +75,14 @@ class BaseAgent(ABC):
 
     async def execute(self) -> AgentResult:
         await self.setup()
-        result = await self.run()
-        result = await self.validate(result)
-        result = await self.report(result)
-        return result
+        try:
+            result = await self.run()
+            result = await self.validate(result)
+            result = await self.report(result)
+            return result
+        finally:
+            await self.cleanup()
+
+    async def cleanup(self) -> None:
+        """Optional teardown (close HTTP clients, browsers, etc). No-op by default."""
+        return None

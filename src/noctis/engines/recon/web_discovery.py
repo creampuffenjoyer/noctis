@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import time
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
 
@@ -16,6 +15,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from noctis.config.settings import Settings
+from noctis.core.rate_limit import RateLimiter
 from noctis.core.scope import ScopeEngine, ScopeViolationError
 
 logger = logging.getLogger("noctis.recon.web_discovery")
@@ -101,26 +101,9 @@ class WebDiscoveryResult:
         }
 
 
-class _RateLimiter:
-    def __init__(self, requests_per_second: float):
-        self._min_interval = 1.0 / requests_per_second if requests_per_second > 0 else 0.0
-        self._last_call = 0.0
-        self._lock = asyncio.Lock()
-
-    async def wait(self) -> None:
-        if self._min_interval <= 0:
-            return
-        async with self._lock:
-            elapsed = time.monotonic() - self._last_call
-            remaining = self._min_interval - elapsed
-            if remaining > 0:
-                await asyncio.sleep(remaining)
-            self._last_call = time.monotonic()
-
-
 async def discover(target: str, scope: ScopeEngine, settings: Settings) -> WebDiscoveryResult:
     result = WebDiscoveryResult(target=target)
-    rate_limiter = _RateLimiter(settings.requests_per_second)
+    rate_limiter = RateLimiter(settings.requests_per_second)
     seen: set[str] = set()
     queue: list[tuple[str, int]] = [(target, 0)]
     js_files: set[str] = set()

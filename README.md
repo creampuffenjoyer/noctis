@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![uv](https://img.shields.io/badge/managed%20with-uv-de5fe9)](https://github.com/astral-sh/uv)
 [![Typer](https://img.shields.io/badge/CLI-Typer%20%2B%20Rich-6f42c1)](https://typer.tiangolo.com/)
-[![Status](https://img.shields.io/badge/status-phase%203%20of%2010-yellow)](#where%20it%20stands)
+[![Status](https://img.shields.io/badge/status-phase%204%20of%2010-yellow)](#where%20it%20stands)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Made for](https://img.shields.io/badge/made%20for-authorized%20engagements-critical)](#responsible%20use)
 
@@ -91,6 +91,21 @@ uv run noctis resume --workspace <id>
 uv run noctis report --workspace <id> --format json
 ```
 
+Noctis is built as a triage tool you work with, not something you point and
+walk away from. A plain `scan` stops right after the prioritized exploitation
+queue is printed so you can review it; nothing gets attacked until you say so:
+
+```bash
+# Review the queue only -- no exploitation happens yet
+uv run noctis scan --url https://example.com --repo /path/to/code
+
+# Launch exploitation agents against that queue once you've reviewed it
+uv run noctis resume --workspace <id> --exploit
+
+# Or do both in one shot (still prompts for confirmation unless --yes)
+uv run noctis scan --url https://example.com --repo /path/to/code --exploit
+```
+
 ## Where it stands
 
 | Piece | State |
@@ -105,12 +120,14 @@ uv run noctis report --workspace <id> --format json
 | Risk engine (exploitability x impact scoring, attack chain detection) | Done |
 | Test planner (prioritized exploitation queue) + concurrency manager | Done |
 | Exploit agent base class | Done |
-| Exploitation agents (SQLi, XSS, SSRF, Auth, IDOR, RCE, LFI, XXE) | Planned |
+| Exploitation agents (SQLi, XSS, SSRF, Auth, IDOR, RCE, LFI, XXE, credential exposure) | Done |
 | Validator + evidence store | Planned |
 | Report engine (PDF / SARIF / Markdown / JSON) | Planned |
 | FastAPI backend + React dashboard | Planned |
 
-`noctis scan` runs every stage that exists today and stops cleanly once it reaches one that doesn't, rather than pretending to finish.
+`noctis scan` runs every stage that exists today and stops cleanly once it reaches one that doesn't, rather than pretending to finish. The exploitation stage additionally never fires without an explicit `--exploit` flag (and a confirmation prompt, unless `CONFIRM_DESTRUCTIVE=false` or `--yes`) -- Noctis is meant to be a triage tool you operate, not something that attacks a target on its own.
+
+Every agent only reports `found=true` after its own immediate re-check reproduces the result, and defaults to safe, non-destructive confirmation techniques (blind/time-based detection, benign canaries, reading a known-harmless file) rather than full exploitation. Heavier techniques -- an actual sqlmap data-extraction pass, default-credential guessing -- stay behind `CONFIRM_DESTRUCTIVE=false` in `.env`.
 
 ## Responsible use
 

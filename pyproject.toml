@@ -31,6 +31,7 @@ noctis = "noctis.cli.main:app"
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
+    "pytest-httpx>=0.30",
 ]
 
 [tool.pytest.ini_options]
