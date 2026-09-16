@@ -13,7 +13,7 @@
 
 Point Noctis at a target URL (and optionally its source code), and it works through a full pentest pipeline on its own: it spiders the app, fingerprints the stack, traces user input to dangerous sinks in the code, builds a graph of the entire attack surface, and (in later phases) prioritizes and launches real exploitation agents against it. Every finding has to survive a replay before it gets reported, so what comes out the other end is a client ready report backed by proof, not a list of guesses from a scanner.
 
-It runs locally on your own machine, talks to whichever AI provider you configure (Gemini, OpenAI, Claude, or OpenRouter), and is meant to hold up under real professional engagements as well as CTF competitions.
+It runs locally on your own machine, talks to whichever AI provider you configure (Gemini, OpenAI, Claude, OpenRouter, or a local model via Ollama/LM Studio/any OpenAI-compatible endpoint), and is meant to hold up under real professional engagements as well as CTF competitions.
 
 ## How it works
 
@@ -62,13 +62,18 @@ uv sync
 uv run playwright install chromium
 ```
 
-Then create a `.env` file in the project root with at least one model API key set:
+Then create a `.env` file in the project root with at least one model API key set -- or point Noctis at a local model instead, e.g. `ollama pull huihui_ai/qwen3.5-abliterated:9b` (or any OpenAI-compatible local server) and use `--model local`, no API key needed:
 
 ```env
 GEMINI_API_KEY=your_gemini_key_here
 OPENAI_API_KEY=your_openai_key_here
 ANTHROPIC_API_KEY=your_anthropic_key_here
 OPENROUTER_API_KEY=your_openrouter_key_here
+
+# Local model via an OpenAI-compatible endpoint (Ollama, LM Studio, etc)
+LOCAL_BASE_URL=http://localhost:11434/v1
+LOCAL_API_KEY=ollama
+LOCAL_MODEL_NAME=huihui_ai/qwen3.5-abliterated:9b
 
 DEFAULT_MODEL=gemini
 MAX_WORKERS=3
@@ -138,7 +143,7 @@ that boundary; a second Ctrl-C force-quits if something's stuck.
 | Piece | State |
 |---|---|
 | CLI + Rich TUI | Done |
-| Model router (Gemini / OpenAI / Claude / OpenRouter) | Done |
+| Model router (Gemini / OpenAI / Claude / OpenRouter / local via Ollama etc) | Done |
 | Scope engine, enforced on every request | Done |
 | SQLite workspace manager with resume | Done |
 | Web discovery (spider, fingerprinting, JS route extraction) | Done |

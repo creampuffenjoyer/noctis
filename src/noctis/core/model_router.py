@@ -1,8 +1,18 @@
-"""Model router: single abstraction over Gemini, OpenAI, Claude, and OpenRouter.
+"""Model router: single abstraction over Gemini, OpenAI, Claude, OpenRouter,
+and a local OpenAI-compatible endpoint (Ollama, LM Studio, etc).
 
 Agents and engines must never call a model SDK directly — always go through
 ModelRouter.think(). Provider SDKs are imported lazily so a machine with only
 one provider configured never has to install/import the others.
+
+The local provider matters beyond "free and offline": a real engagement's
+target data (URLs, source snippets, findings) never has to leave the tester's
+machine, and local models are commonly run "abliterated" (safety-refusal
+weights removed) specifically because hosted, safety-tuned models frequently
+refuse legitimate, authorized security-research prompts. Noctis's own
+guardrails (scope enforcement, confirm-before-destructive, safe-by-default
+agent techniques) are independent of which model backend answers think() --
+swapping providers here doesn't change what the agents are allowed to do.
 """
 from __future__ import annotations
 
@@ -38,7 +48,11 @@ class ModelRouter:
 
     def __init__(self, settings: Settings | None = None, *, model_names: dict[ModelProvider, str] | None = None):
         self.settings = settings or get_settings()
-        self.model_names = {**DEFAULT_MODEL_NAMES, **(model_names or {})}
+        self.model_names = {
+            **DEFAULT_MODEL_NAMES,
+            ModelProvider.LOCAL: self.settings.local_model_name,
+            **(model_names or {}),
+        }
 
     async def think(
         self,
@@ -62,6 +76,7 @@ class ModelRouter:
             ModelProvider.OPENAI: self._call_openai,
             ModelProvider.CLAUDE: self._call_claude,
             ModelProvider.OPENROUTER: self._call_openrouter,
+            ModelProvider.LOCAL: self._call_local,
         }[provider]
 
         logger.debug("model_router: calling %s (model=%s)", provider.value, self.model_names[provider])
@@ -127,6 +142,23 @@ class ModelRouter:
         return ThinkResult(
             text=response.choices[0].message.content or "",
             provider=ModelProvider.OPENROUTER,
+            model=model_name,
+            raw=response,
+        )
+
+    async def _call_local(self, prompt: str, api_key: str, system: str | None) -> ThinkResult:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=api_key, base_url=self.settings.local_base_url)
+        model_name = self.model_names[ModelProvider.LOCAL]
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        response = await client.chat.completions.create(model=model_name, messages=messages)
+        return ThinkResult(
+            text=response.choices[0].message.content or "",
+            provider=ModelProvider.LOCAL,
             model=model_name,
             raw=response,
         )

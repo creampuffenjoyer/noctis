@@ -13,6 +13,7 @@ class ModelProvider(StrEnum):
     OPENAI = "openai"
     CLAUDE = "claude"
     OPENROUTER = "openrouter"
+    LOCAL = "local"
 
 
 class Settings(BaseSettings):
@@ -22,6 +23,12 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
     openrouter_api_key: str | None = None
+
+    # local models (Ollama, LM Studio, etc) via an OpenAI-compatible endpoint --
+    # no real API key needed, but the OpenAI SDK requires a non-empty string
+    local_base_url: str = "http://localhost:11434/v1"
+    local_api_key: str = "ollama"
+    local_model_name: str = "huihui_ai/qwen3.5-abliterated:9b"
 
     default_model: ModelProvider = ModelProvider.GEMINI
 
@@ -41,6 +48,7 @@ class Settings(BaseSettings):
             ModelProvider.OPENAI: self.openai_api_key,
             ModelProvider.CLAUDE: self.anthropic_api_key,
             ModelProvider.OPENROUTER: self.openrouter_api_key,
+            ModelProvider.LOCAL: self.local_api_key,
         }[provider]
 
 
